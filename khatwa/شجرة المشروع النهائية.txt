@@ -1,0 +1,23 @@
+khatwa/
+├── package.json · next.config.mjs · tailwind.config.ts · postcss.config.mjs
+├── tsconfig.json · vercel.json · .env.example
+├── prisma/schema.prisma · prisma/seed.ts
+├── data/catalog.json                    ← كما سُلِّم سابقاً (مفاتيح milestones + riskFactors + activities مدمجة)
+├── lib/  db · session · site · levels · engine · phone · rf · activities
+│         activities-client · idb · sync-client · analytics
+│         notify/providers · notify/dispatch
+├── components/  ui · activities-section · pwa-register · sync-indicator
+├── public/  sw.js · icon.svg · icon-maskable.svg · icon-apple.png (يولَّد مرة واحدة)
+└── app/
+    ├── layout · globals.css · page(هبوط) · manifest.ts
+    ├── login · dashboard · pregnancy · offline · analytics
+    ├── child/[id] · child/[id]/checkpoint · child/[id]/report/[aid]
+    ├── specialist · referrals
+    └── api/
+        ├── auth/otp · auth/verify · me
+        ├── children · children/[id] · children/[id]/due-items · children/[id]/checkpoint
+        ├── assessments/[id] · assessments/[id]/activities · activities
+        ├── specialist/queue · specialist/review
+        ├── referrals · facilities · pregnancy
+        ├── analytics/kpis · analytics/export
+        └── notify/process · notify/whatsapp-webhook

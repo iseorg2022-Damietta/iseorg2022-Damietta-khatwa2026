@@ -1,0 +1,305 @@
+// ============================================================
+// منصة د. عبد الناصر أنيس عبد الوهاب للكشف المبكر والإحالة
+// المخطط الكامل — نسخة مصححة ومعتمدة (تعليقات // فقط — Prisma
+// لا يدعم تعليقات الكتل /* */)
+//
+// سياسة الحذف (قانون 151/2020 — حق المحو):
+//   بيانات الطفل ومقاييسه: Cascade — تُمحى مع الطفل
+//   سجلات الإشعارات (تدقيق): SetNull — يبقى السجل ويُجهَض الربط
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------- التعدادات ----------------
+
+enum Role {
+  MOTHER
+  SPECIALIST
+  DIAGNOSTICIAN
+  COORDINATOR
+  ADMIN
+}
+
+enum Answer {
+  ACHIEVED
+  NOT_YET
+  LOST
+  REFUSED
+}
+
+enum ReferralStatus {
+  CREATED
+  CONTACTED
+  SCHEDULED
+  ASSESSED
+  CLOSED
+}
+
+enum Urgency {
+  TELECONSULT
+  SCHEDULED_7D
+  IMMEDIATE_48H
+}
+
+enum Hearing {
+  PASS
+  REFER
+  UNKNOWN
+}
+
+// ---------------- المستخدمون والحمل ----------------
+
+model User {
+  id        Int      @id @default(autoincrement())
+  phone     String   @unique // E.164: 201112773477
+  name      String?
+  role      Role     @default(MOTHER)
+  createdAt DateTime @default(now())
+
+  children    Child[]
+  pregnancies Pregnancy[]
+  reviews     Assessment[] // التقييمات التي راجعها هذا الأخصائي
+
+  @@index([role])
+}
+
+model Pregnancy {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  user      User      @relation(fields: [userId], references: [id])
+  lmpDate   DateTime?
+  eddDate   DateTime?
+  status    String    @default("active") // active | ended
+  createdAt DateTime  @default(now())
+
+  events   PregnancyEvent[]
+  children Child[] // ربط اختياري — يُملأ عند تسجيل الميلاد
+
+  @@index([userId, status])
+}
+
+model PregnancyEvent {
+  id          Int       @id @default(autoincrement())
+  pregnancyId Int
+  pregnancy   Pregnancy @relation(fields: [pregnancyId], references: [id])
+  category    String // medication | infection | substance | condition | ultrasound | movement | family
+  code        String
+  label       String
+  weight      Int
+  week        Int?
+  notes       String?
+  createdAt   DateTime  @default(now())
+
+  @@index([pregnancyId])
+}
+
+// ---------------- الطفل ----------------
+
+model Child {
+  id              Int      @id @default(autoincrement())
+  userId          Int
+  user            User     @relation(fields: [userId], references: [id])
+  pregnancyId     Int?
+  pregnancy       Pregnancy? @relation(fields: [pregnancyId], references: [id])
+  name            String
+  gender          String?
+  birthDate       DateTime
+  gaWeeks         Float    @default(40)
+  birthWeightG    Int?
+  apgar5          Int?
+  deliveryType    String?
+  district        String? // للتغطية الجغرافية في M&E
+  nicuDays        Int      @default(0)
+  jaundicePhoto   Boolean  @default(false)
+  jaundiceExch    Boolean  @default(false)
+  neonatalSeiz    Boolean  @default(false)
+  hearingScreen   Hearing  @default(UNKNOWN)
+  ivhGrade        Int?
+  hie             Boolean  @default(false)
+  ventilationDays Int      @default(0)
+  ototoxic        Boolean  @default(false)
+  familyHistory   String?
+  consanguinity   Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  riskFactors ChildRiskFactor[]
+  responses   MilestoneResponse[]
+  assessments Assessment[]
+  referrals   Referral[]
+  alerts      Alert[]
+
+  @@index([userId])
+}
+
+model ChildRiskFactor {
+  id        Int      @id @default(autoincrement())
+  childId   Int
+  child     Child    @relation(fields: [childId], references: [id], onDelete: Cascade)
+  code      String
+  label     String
+  weight    Int
+  category  String // birth | sensory | family | pregnancy | environment
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([childId, active])
+}
+
+// ---------------- الكتالوج النمائي ----------------
+
+model MilestoneItem {
+  id       String  @id // مثال: WALK-18 — من data/catalog.json عبر seed
+  kind     String  @default("milestone") // milestone | regression
+  domain   String // GM | FM | CO | SE | CP | SC
+  wmin     Float
+  wmax     Float
+  weight   Int
+  gate     Boolean @default(false)
+  limitAge Float?
+  sev      String? // medium | high | critical
+  stem     String
+  guide    String?
+  active   Boolean @default(true)
+
+  @@index([active, wmin, wmax]) // استعلام dueItems الأساسي
+}
+
+model MilestoneResponse {
+  id         Int      @id @default(autoincrement())
+  childId    Int
+  child      Child    @relation(fields: [childId], references: [id], onDelete: Cascade)
+  itemId     String // بلا FK عمداً: الكتالوج مستقل والردود التاريخية محمية من حذف تحديث المعرفات
+  checkpoint Int
+  answer     Answer
+  answeredBy String   @default("mother") // mother | specialist
+  createdAt  DateTime @default(now())
+
+  @@unique([childId, itemId, checkpoint]) // قيد الـ upsert في checkpoint/route.ts
+  @@index([childId])
+}
+
+// ---------------- التقييمات ----------------
+
+model Assessment {
+  id            Int       @id @default(autoincrement())
+  childId       Int
+  child         Child     @relation(fields: [childId], references: [id], onDelete: Cascade)
+  checkpoint    Int
+  chronoAge     Float
+  devAge        Float
+  index         Int // 0-100
+  level         Int // 1-5
+  delayScore    Float
+  redFlagScore  Float
+  rfScore       Float
+  domainScores  Json // { GM: {pct, due}, ... }
+  redFlags      Json
+  overrides     Json? // قواعد التجاوز المطبَّقة — تُحفظ من checkpoint/route.ts
+  narrative     String
+  reviewedBy    Int?
+  reviewer      User?     @relation(fields: [reviewedBy], references: [id], onDelete: SetNull)
+  reviewedAt    DateTime? // T1 — زمن مراجعة الأخصائي (مؤشر M&E)
+  adjustedLevel Int?
+  reviewNote    String?
+  createdAt     DateTime  @default(now())
+
+  referrals Referral[]
+  alerts    Alert[]
+
+  @@unique([childId, checkpoint]) // حصن الازدواج — يجعل مزامنة Offline آمنة
+  @@index([level, createdAt]) // قائمة انتظار الأخصائي
+}
+
+// ---------------- المراكز والإحالة ----------------
+
+model Facility {
+  id       Int     @id @default(autoincrement())
+  name     String
+  type     String // early_intervention | audiology | ophthalmology | neuro | therapy
+  district String
+  services String?
+  contact  String?
+  mou      Boolean @default(false)
+
+  referrals Referral[] // إلزامية — بدونها يرفض Prisma المخطط كله
+
+  @@index([district])
+}
+
+model Referral {
+  id           Int            @id @default(autoincrement())
+  childId      Int
+  child        Child          @relation(fields: [childId], references: [id], onDelete: Cascade)
+  assessmentId Int
+  assessment   Assessment     @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  facilityId   Int
+  facility     Facility       @relation(fields: [facilityId], references: [id]) // Restrict: لا حذف مركز له تاريخ
+  urgency      Urgency
+  status       ReferralStatus @default(CREATED)
+  outcome      String? // enrolled_intervention | monitor_3m | closed_false_alarm | declined
+  notes        String?
+  dueAt        DateTime
+  contactedAt  DateTime? // SLA الاتصال — يُضبط في referrals PATCH
+  assessedAt   DateTime? // نهاية المسار الوجاهي — مؤشر M&E
+  closedAt     DateTime?
+  createdAt    DateTime       @default(now())
+
+  alerts Alert[]
+
+  @@index([status, dueAt]) // SLA والتصعيد التلقائي
+  @@index([childId])
+}
+
+// ---------------- الأنشطة المنزلية ----------------
+
+model ContentActivity {
+  id        String  @id // مثال: GM-06-A
+  domain    String // GM | FM | CO | SE | CP | SC
+  amin      Float
+  amax      Float
+  title     String
+  steps     Json // مصفوفة خطوات
+  materials String
+  why       String
+  warn      String?
+  active    Boolean @default(true)
+
+  @@index([domain, amin, amax]) // استعلام recommendedActivities
+}
+
+// ---------------- طابور الإشعارات (SMS / WhatsApp) ----------------
+
+model Alert {
+  id           Int       @id @default(autoincrement())
+  dedupeKey    String    @unique // kind:channel:childId:sourceId:recipient — حماية التكرار
+  channel      String // SMS | WHATSAPP
+  kind         String // OTP | LEVEL3_MOTHER | LEVEL4_MOTHER | LEVEL5_MOTHER | REFERRAL_MOTHER | SPECIALIST_CASE | CHECKPOINT_REMINDER
+  recipient    String // E.164: 2010xxxxxxxx
+  body         String // النص الفعلي المُرسل — تدقيق كامل
+  vars         Json? // قيم قوالب WhatsApp — يبني منها الإرسال القالبية مباشرة
+  status       String    @default("QUEUED") // QUEUED|SENT|DELIVERED|READ|FAILED|SKIPPED
+  attempts     Int       @default(0)
+  provider     String? // SMSMISR | VICTORYLINK | META_WA
+  providerRef  String? // معرف الرسالة لدى المزود — مفتاح مطابقة الويبهوك
+  lastError    String?
+  nextAttempt  DateTime?
+  childId      Int?
+  child        Child?    @relation(fields: [childId], references: [id], onDelete: SetNull)
+  assessmentId Int?
+  assessment   Assessment? @relation(fields: [assessmentId], references: [id], onDelete: SetNull)
+  referralId   Int?
+  referral     Referral? @relation(fields: [referralId], references: [id], onDelete: SetNull)
+  sentAt       DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@index([status, nextAttempt]) // استعلام processQueue
+  @@index([childId])
+}

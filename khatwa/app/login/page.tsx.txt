@@ -1,0 +1,54 @@
+"use client";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { SITE } from "@/lib/site";
+
+export default function Login() {
+  const [phone, setPhone] = useState("");
+  const [code, setCode] = useState("");
+  const [step, setStep] = useState(1);
+  const [msg, setMsg] = useState("");
+  const router = useRouter();
+
+  async function sendOtp() {
+    const r = await fetch("/api/auth/otp", { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone }) });
+    const j = await r.json();
+    if (j.error) { setMsg(j.error); return; }
+    if (j.devCode) setMsg(`(وضع تجريبي) الرمز: ${j.devCode}`);
+    setStep(2);
+  }
+
+  async function verify() {
+    const r = await fetch("/api/auth/verify", { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone, code }) });
+    const j = await r.json();
+    if (j.ok) {
+      router.push(["SPECIALIST", "COORDINATOR", "ADMIN", "DIAGNOSTICIAN"].includes(j.role) ? "/specialist" : "/dashboard");
+      router.refresh();
+    } else setMsg(j.error || "تعذر الدخول");
+  }
+
+  return (
+    <div className="max-w-md mx-auto card mt-10">
+      <h1 className="text-xl font-extrabold mb-4">الدخول برقم الهاتف</h1>
+      <label className="label">رقم الهاتف</label>
+      <input className="input mb-4" dir="ltr" placeholder="01xxxxxxxxx"
+             value={phone} onChange={e => setPhone(e.target.value)} />
+      {step === 2 && (<>
+        <label className="label">رمز التحقق المرسل</label>
+        <input className="input mb-4" dir="ltr" value={code}
+               onChange={e => setCode(e.target.value)} />
+      </>)}
+      {msg && <p className="text-sm text-brand mb-3">{msg}</p>}
+      <button className="btn-primary w-full" onClick={step === 1 ? sendOtp : verify}>
+        {step === 1 ? "إرسال الرمز" : "تأكيد الدخول"}
+      </button>
+      <p className="text-xs text-stone-500 mt-4 leading-relaxed">
+        بياناتك محمية وفق قانون حماية البيانات الشخصية رقم 151 لسنة 2020،
+        ولا تُشارك إلا مع الأخصائي المسؤول عن حالة طفلك.
+        <br />لأي مشكلة في الدخول: {SITE.phone} أو {SITE.email}
+      </p>
+    </div>
+  );
+}
