@@ -1,0 +1,42 @@
+name: Clean invisible chars
+on: [push]
+permissions:
+  contents: write
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Clean all source files
+        run: |
+          node -e "
+          const fs=require('fs'),path=require('path');
+          const D=/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u00AD\u061C\u180E\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF\uFFF9-\uFFFB]/g;
+          const S=/[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g;
+          let f=[];
+          (function w(d){for(const x of fs.readdirSync(d)){const p=path.join(d,x),st=fs.statSync(p);
+          if(st.isDirectory()){if(!['node_modules','.next','.git','out'].includes(x))w(p);}
+          else if(/\.(ts|tsx|js|mjs|json|css|prisma)$/.test(x)){
+            const c=fs.readFileSync(p,'utf8'),cl=c.replace(D,'').replace(S,' ');
+            if(cl!==c){fs.writeFileSync(p,cl);f.push(p);}}}})('.');
+          console.log(f.length?('CLEANED: '+f.join(', ')):'NOTHING_TO_CLEAN');"
+      - name: Diagnose line 69
+        run: |
+          node -e "
+          const l=require('fs').readFileSync('app/analytics/page.tsx','utf8').split('\n')[68];
+          console.log('LINE69:', JSON.stringify(l));
+          console.log('HEX:', [...l].map(c=>c.codePointAt(0).toString(16)).join(' '));"
+      - name: Commit cleaned files
+        run: |
+          git config user.name "cleanup-bot"
+          git config user.email "actions@github.com"
+          if git diff --quiet; then
+            echo "No changes - files already clean"
+          else
+            git add -A
+            git commit -m "Auto-clean invisible characters"
+            git push
+          fi
