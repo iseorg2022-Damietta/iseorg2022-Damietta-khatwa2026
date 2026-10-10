@@ -1,4 +1,5 @@
-// app/api/specialist/queue/route.ts — قائمة الحالات مرتبة بالخطورة
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionUser } from "@/lib/session";

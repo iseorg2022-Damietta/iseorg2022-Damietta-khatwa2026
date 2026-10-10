@@ -1,15 +1,50 @@
-{
-  "name": "khatwa-platform",
-  "version": "1.0.0",
-  "private": true,
-  "scripts": {
-    "dev": "next dev", "build": "prisma generate && next build", "start": "next start",
-    "db:push": "prisma db push", "db:seed": "tsx prisma/seed.ts"
-  },
-  "dependencies": { "@prisma/client": "^5.19.0", "next": "14.2.5", "react": "18.3.1", "react-dom": "18.3.1" },
-  "devDependencies": {
-    "prisma": "^5.19.0", "tsx": "^4.16.0", "typescript": "^5.5.4",
-    "tailwindcss": "^3.4.10", "postcss": "^8.4.41", "autoprefixer": "^10.4.20",
-    "@types/node": "^20", "@types/react": "^18"
-  }
+// lib/sync-client.ts - page-side sync (iOS fallback for Background Sync)
+import { listOutbox, delOutbox } from "./idb";
+
+let inFlight = false;
+export const isOnline = (): boolean =>
+  typeof navigator === "undefined" ? true : navigator.onLine;
+
+function emit(detail: Record<string, unknown>): void {
+  if (typeof window !== "undefined")
+    window.dispatchEvent(new CustomEvent("khatwa-sync", { detail }));
+}
+
+export async function registerSync(): Promise<{ via?: string; queued?: boolean }> {
+  if (!isOnline()) return { queued: true };
+  try {
+    const reg: any = await navigator.serviceWorker?.ready;
+    if (reg?.sync) { await reg.sync.register("khatwa-sync"); return { via: "background-sync" }; }
+  } catch { /* fall to page sync */ }
+  void runPageSync();
+  return { via: "page" };
+}
+
+export async function runPageSync(): Promise<void> {
+  if (inFlight || !isOnline()) return;
+  inFlight = true;
+  emit({ phase: "start" });
+  try {
+    const entries = await listOutbox();
+    let done = 0, failed = 0;
+    for (const en of entries) {
+      try {
+        const res = await fetch(en.url, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: en.body,
+        });
+        if (res.ok || (res.status >= 400 && res.status < 500)) {
+          await delOutbox(en.id);
+          res.ok ? done++ : failed++;
+          emit({ phase: "item", localId: en.localId, ok: res.ok, status: res.status });
+        } else { failed++; break; }
+      } catch { failed++; break; }
+    }
+    const remaining = (await listOutbox()).length;
+    emit({ phase: "done", done, failed, remaining });
+  } finally { inFlight = false; }
+}
+
+export function startSyncLifecycle(): void {
+  window.addEventListener("online", () => { void registerSync(); });
+  void registerSync().catch(() => {});
 }

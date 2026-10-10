@@ -1,4 +1,4 @@
-// components/ui.tsx — المكونات المشتركة: شارة المستوى + المؤشر الحلقي + أشرطة المجالات
+// components/ui.tsx - RiskBadge / Gauge / DomainBars
 import { LEVELS, DOMAIN_NAMES } from "@/lib/levels";
 
 export function RiskBadge({ level }: { level: number }) {
@@ -24,7 +24,7 @@ export function Gauge({ index, level }: { index: number; level: number }) {
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <span className="text-3xl font-extrabold" style={{ color: cfg.color }}>{index}</span>
-        <span className="text-xs text-stone-500">مؤشر الخطر /100</span>
+        <span className="text-xs text-stone-500">{"\u0645\u0624\u0634\u0631 \u0627\u0644\u062e\u0637\u0631 /100"}</span>
       </div>
     </div>
   );

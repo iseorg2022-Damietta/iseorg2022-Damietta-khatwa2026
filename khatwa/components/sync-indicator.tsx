@@ -1,38 +1,50 @@
 "use client";
-import { DOMAIN_NAMES } from "@/lib/levels";
+import { useEffect, useState } from "react";
+import { isOnline } from "@/lib/sync-client";
 
-export interface ActivityLite { id: string; domain: string; title: string;
-  steps: string[]; materials: string; why: string; warn?: string | null; }
+export default function SyncIndicator() {
+  const [online, setOnline] = useState(true);
+  const [pending, setPending] = useState(0);
+  const [syncing, setSyncing] = useState(false);
 
-export default function ActivitiesSection(
-  { isEnrichment, activities }: { isEnrichment: boolean; activities: ActivityLite[] }) {
-  const byDomain: Record<string, ActivityLite[]> = {};
-  for (const a of activities) (byDomain[a.domain] ||= []).push(a);
+  useEffect(() => {
+    setOnline(isOnline());
+    const on = () => setOnline(true), off = () => setOnline(false);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    const refresh = async () => {
+      const { listOutbox } = await import("@/lib/idb");
+      setPending((await listOutbox()).length);
+    };
+    const onSync = (e: Event) => {
+      const d = (e as CustomEvent).detail || {};
+      if (d.phase === "start") setSyncing(true);
+      if (d.phase === "item" || d.phase === "done") {
+        setPending(d.remaining ?? 0);
+        if (d.phase === "done") setSyncing(false);
+      }
+    };
+    window.addEventListener("khatwa-sync", onSync);
+    void refresh();
+    const t = setInterval(refresh, 15000);
+    return () => {
+      window.removeEventListener("online", on);
+      window.removeEventListener("offline", off);
+      window.removeEventListener("khatwa-sync", onSync);
+      clearInterval(t);
+    };
+  }, []);
+
+  if (online && !syncing && !pending) return null;
+
+  const [cls, text] = !online
+    ? ["bg-stone-600", pending ? `\u062f\u0648\u0646 \u0627\u062a\u0635\u0627\u0644 \u2014 ${pending} \u0628\u0627\u0646\u062a\u0638\u0627\u0631 \u0627\u0644\u0645\u0632\u0627\u0645\u0646\u0629` : "\u062f\u0648\u0646 \u0627\u062a\u0635\u0627\u0644"]
+    : syncing ? ["bg-l3", "\u062c\u0627\u0631\u064d \u0627\u0644\u0645\u0632\u0627\u0645\u0646\u0629..."]
+    : ["bg-l4", `${pending} \u062a\u0642\u064a\u064a\u0645 \u0628\u0627\u0646\u062a\u0638\u0627\u0631 \u0627\u0644\u0645\u0632\u0627\u0645\u0646\u0629`];
+
   return (
-    <div className="card bg-white">
-      <h2 className="font-extrabold mb-1">
-        {isEnrichment ? "🌱 أنشطة إثرائية منزلية — طفلك في المسار الصحيح"
-                      : "🎯 أنشطة منزلية موجهة لمجالي التركيز"}
-      </h2>
-      <p className="text-xs text-stone-500 mb-4">
-        مواد من البيت · 10 دقائق يومياً · تناوبي بينها أسبوعين ثم أعيدي نقطة التفتيش
-      </p>
-      {Object.entries(byDomain).map(([d, acts]) => (
-        <div key={d} className="mb-4">
-          <h3 className="font-bold text-brand">{DOMAIN_NAMES[d]}</h3>
-          {acts.map(a => (
-            <details key={a.id} className="mt-2 rounded-xl border border-stone-100 p-3">
-              <summary className="font-bold cursor-pointer">{a.title}</summary>
-              <ol className="list-decimal pr-5 text-sm mt-2 space-y-1">
-                {a.steps.map((s, i) => <li key={i}>{s}</li>)}
-              </ol>
-              <p className="text-xs text-stone-500 mt-2">المواد: {a.materials} · الفائدة: {a.why}</p>
-              {a.warn && <p className="text-xs text-l5 font-bold mt-1">⚠️ {a.warn}</p>}
-            </details>))}
-        </div>))}
-      <p className="text-[11px] text-stone-400 border-t border-stone-100 pt-2">
-        الأنشطة توجيهية للتحفيز المنزلي ولا تُغني عن التقييم المتخصص عند وجود إنذار.
-      </p>
+    <div className={`fixed bottom-3 left-3 z-50 rounded-full px-3 py-1.5 text-xs font-bold text-white shadow ${cls}`}>
+      {text}
     </div>
   );
 }

@@ -1,15 +1,23 @@
-{
-  "name": "khatwa-platform",
-  "version": "1.0.0",
-  "private": true,
-  "scripts": {
-    "dev": "next dev", "build": "prisma generate && next build", "start": "next start",
-    "db:push": "prisma db push", "db:seed": "tsx prisma/seed.ts"
-  },
-  "dependencies": { "@prisma/client": "^5.19.0", "next": "14.2.5", "react": "18.3.1", "react-dom": "18.3.1" },
-  "devDependencies": {
-    "prisma": "^5.19.0", "tsx": "^4.16.0", "typescript": "^5.5.4",
-    "tailwindcss": "^3.4.10", "postcss": "^8.4.41", "autoprefixer": "^10.4.20",
-    "@types/node": "^20", "@types/react": "^18"
-  }
+// lib/activities.ts - server-side activity recommendation
+import { db } from "./db";
+
+export async function recommendedActivities(
+  domainScores: Record<string, { pct: number; due: number }>,
+  devAge: number,
+) {
+  const sorted = Object.entries(domainScores).sort((x, y) => x[1].pct - y[1].pct);
+  const lowest = sorted.slice(0, 2).map(([d]) => d);
+  const isEnrichment = sorted.length > 0 && sorted.every(([, v]) => v.pct >= 80);
+
+  const fetchFor = (domains: string[], lo: number, hi: number) =>
+    db.contentActivity.findMany({
+      where: { domain: { in: domains }, amin: { lte: hi }, amax: { gte: lo }, active: true },
+      orderBy: [{ domain: "asc" }, { amin: "asc" }],
+    });
+
+  let activities = await fetchFor(lowest, devAge - 1, devAge + 1);
+  if (activities.length < 4) activities = await fetchFor(lowest, devAge - 3, devAge + 3);
+  if (activities.length < 4) activities = await fetchFor(lowest, 0, 72);
+
+  return { isEnrichment, focusDomains: lowest, activities };
 }

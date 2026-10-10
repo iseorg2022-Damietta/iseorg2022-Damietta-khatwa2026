@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionUser } from "@/lib/session";
@@ -34,7 +36,6 @@ export async function POST(req: Request) {
     },
   });
 
-  /* إشعار الأم بالمسار (SMS + WhatsApp بقوالب معتمدة) */
   try {
     const child = await db.child.findUnique({ where: { id: a.childId } });
     const mother = child && await db.user.findUnique({
